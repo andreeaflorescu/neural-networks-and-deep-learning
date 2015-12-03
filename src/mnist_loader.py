@@ -78,40 +78,72 @@ def load_data_wrapper():
         te_set_length = np.ceil(len(te_d)*1.0 / comm.size)
 
         # send only the corresponding data to each process
+        np.set_printoptions(threshold='nan')
+        print tr_d[0]
         for rank in range(1, comm.size):
+            print rank
             comm.send(tr_d[0][rank * tr_set_length:(rank + 1) * tr_set_length], dest=rank, tag=11)
             comm.send(tr_d[1][rank * tr_set_length:(rank + 1) * tr_set_length], dest=rank, tag=12)
-            comm.send(va_d[0][rank * va_set_length:(rank + 1) * va_set_length]], dest=rank, tag=13)
-            comm.send(te_d[0][rank * te_set_length:(rank + 1) * te_set_length]], dest=rank, tag=14)
+            comm.send(va_d[0][rank * va_set_length:(rank + 1) * va_set_length], dest=rank, tag=13)
+            comm.send(te_d[0][rank * te_set_length:(rank + 1) * te_set_length], dest=rank, tag=14)
 
-    # process the corresponding part of the arrays
-    training_inputs = [np.reshape(x, (784,1)) for x in tr_d[0][comm.rank * tr_set_length:(comm.rank + 1 )*tr_set_length]]
-    training_results = [vectorized_result(y) for y in tr_d[1][comm.rank * tr_set_length:(comm.rank + 1 )*tr_set_length]]
-    validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0][comm.rank * va_set_length:(comm.rank + 1 )*va_set_length]]
-    test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0][comm.rank * te_set_length:(comm.rank + 1 )*te_set_length]]
+        # process the corresponding part of the arrays
+
+        all_training_inputs = [np.reshape(x, (784,1)) for x in tr_d[0][comm.rank * tr_set_length:(comm.rank + 1 )*tr_set_length]]
+        all_training_results = [vectorized_result(y) for y in tr_d[1][comm.rank * tr_set_length:(comm.rank + 1 )*tr_set_length]]
+        all_validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0][comm.rank * va_set_length:(comm.rank + 1 )*va_set_length]]
+        all_test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0][comm.rank * te_set_length:(comm.rank + 1 )*te_set_length]]
+    else:
+        # receive arrays from master and process the corresponding part
+        tr_d   = comm.recv(source=0, tag=11)
+        training_inputs = [np.reshape(x, (784,1)) for x in tr_d]
+        comm.send(training_inputs, dest=0, tag=11)
+        
+        tr_d_r = comm.recv(source=0, tag=12)
+        training_results = [vectorized_result(y) for y in tr_d_r]
+        comm.send(training_results, dest=0, tag=12)
+
+        va_d   = comm.recv(source=0, tag=13)
+        validation_inputs = [np.reshape(x, (784, 1)) for x in va_d]
+        comm.send(validation_inputs, dest=0, tag=13)
+        
+        te_d   = comm.recv(source=0, tag=14)
+        test_inputs = [np.reshape(x, (784, 1)) for x in te_d]
+        comm.send(test_inputs, dest=0, tag=14)
 
     if comm.rank == 0:
         # wait for results from slaves
         # each slave must send back to the master 4 messages
         total_messages = (comm.size - 1) * 4
         while total_messages > 0:
+            status = MPI.Status()
             data = comm.recv(MPI.ANY_SOURCE, MPI.ANY_TAG, status=status)
             source = status.Get_source()
             tag = status.Get_tag()
             if tag == 11:
-                # TODO push back to training_inputs
+                all_training_inputs.extend(data)
+                # TODO push back to training_inputs - might not work properly
             elif tag == 12:
-                # TODO push back to training_results
+                all_training_results.extend(data)
+                # TODO push back to training_results - might not work properly
             elif tag == 13:
-                # TODO push back to validation_inputs
+                all_validation_inputs.extend(data)
+                # TODO push back to validation_inputs - might not work properly
             elif tag == 14:
-                # TODO push back to test_inputs
+                all_test_inputs.extend(data)
+                # TODO push back to test_inputs - might not work properly
 
-            total_messages --
+            total_messages -= 1
             
-        training_data = zip(training_inputs, training_results)
-        validation_data = zip(validation_inputs, va_d[1])
-        test_data = zip(test_inputs, te_d[1])
+        training_data = zip(all_training_inputs, all_training_results)
+        validation_data = zip(all_validation_inputs, va_d[1])
+        test_data = zip(all_test_inputs, te_d[1])
+        print "=====================training data======================"
+        #print training_data
+        print "=====================validation data===================="
+        #print validation_data
+        print "=====================test data=========================="
+        #print test_data
         return (training_data, validation_data, test_data)
 
 
