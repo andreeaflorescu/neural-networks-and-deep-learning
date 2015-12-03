@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """
 mnist_loader
 ~~~~~~~~~~~~
@@ -15,6 +16,7 @@ import gzip
 
 # Third-party libraries
 import numpy as np
+from mpi4py import MPI
 
 def load_data():
     """Return the MNIST data as a tuple containing the training data,
@@ -65,15 +67,60 @@ def load_data_wrapper():
     the training data and the validation / test data.  These formats
     turn out to be the most convenient for use in our neural network
     code."""
-    tr_d, va_d, te_d = load_data()
-    training_inputs = [np.reshape(x, (784, 1)) for x in tr_d[0]]
-    training_results = [vectorized_result(y) for y in tr_d[1]]
-    training_data = zip(training_inputs, training_results)
-    validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0]]
-    validation_data = zip(validation_inputs, va_d[1])
-    test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0]]
-    test_data = zip(test_inputs, te_d[1])
-    return (training_data, validation_data, test_data)
+
+    comm = MPI.COMM_WORLD
+    if comm.rank == 0:
+        # read data from gzip
+        tr_d, va_d, te_d = load_data()
+        # calculate the set length that each process has to calculate
+        tr_set_length = np.ceil(len(tr_d)*1.0 / comm.size)
+        va_set_length = np.ceil(len(va_d)*1.0 / comm.size)
+        te_set_length = np.ceil(len(te_d)*1.0 / comm.size)
+
+        # send only the corresponding data to each process
+        for rank in range(1, comm.size):
+            comm.send(tr_d[0][rank * tr_set_length:(rank + 1) * tr_set_length], dest=rank, tag=11)
+            comm.send(tr_d[1][rank * tr_set_length:(rank + 1) * tr_set_length], dest=rank, tag=12)
+            comm.send(va_d[0][rank * va_set_length:(rank + 1) * va_set_length]], dest=rank, tag=13)
+            comm.send(te_d[0][rank * te_set_length:(rank + 1) * te_set_length]], dest=rank, tag=14)
+
+    # process the corresponding part of the arrays
+    training_inputs = [np.reshape(x, (784,1)) for x in tr_d[0][comm.rank * tr_set_length:(comm.rank + 1 )*tr_set_length]]
+    training_results = [vectorized_result(y) for y in tr_d[1][comm.rank * tr_set_length:(comm.rank + 1 )*tr_set_length]]
+    validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0][comm.rank * va_set_length:(comm.rank + 1 )*va_set_length]]
+    test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0][comm.rank * te_set_length:(comm.rank + 1 )*te_set_length]]
+
+    if comm.rank == 0:
+        # wait for results from slaves
+        # each slave must send back to the master 4 messages
+        total_messages = (comm.size - 1) * 4
+        while total_messages > 0:
+            data = comm.recv(MPI.ANY_SOURCE, MPI.ANY_TAG, status=status)
+            source = status.Get_source()
+            tag = status.Get_tag()
+            if tag == 11:
+                # TODO push back to training_inputs
+            elif tag == 12:
+                # TODO push back to training_results
+            elif tag == 13:
+                # TODO push back to validation_inputs
+            elif tag == 14:
+                # TODO push back to test_inputs
+
+            total_messages --
+            
+        training_data = zip(training_inputs, training_results)
+        validation_data = zip(validation_inputs, va_d[1])
+        test_data = zip(test_inputs, te_d[1])
+        return (training_data, validation_data, test_data)
+
+
+    # training_inputs = [np.reshape(x, (784, 1)) for x in tr_d[0]]
+    # training_results = [vectorized_result(y) for y in tr_d[1]]
+    #
+    # validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0]]
+    #
+    # test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0]]
 
 def vectorized_result(j):
     """Return a 10-dimensional unit vector with a 1.0 in the jth
