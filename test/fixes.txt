@@ -1,0 +1,3 @@
+Run MPI:
+mpirun --prefix /usr/lib64/openmpi -np 4 ./01-hello-world
+
