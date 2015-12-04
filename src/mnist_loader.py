@@ -72,16 +72,14 @@ def load_data_wrapper():
     if comm.rank == 0:
         # read data from gzip
         tr_d, va_d, te_d = load_data()
+
         # calculate the set length that each process has to calculate
-        tr_set_length = np.ceil(len(tr_d)*1.0 / comm.size)
-        va_set_length = np.ceil(len(va_d)*1.0 / comm.size)
-        te_set_length = np.ceil(len(te_d)*1.0 / comm.size)
+        tr_set_length = np.ceil(len(tr_d[0])*1.0 / comm.size)
+        va_set_length = np.ceil(len(va_d[0])*1.0 / comm.size)
+        te_set_length = np.ceil(len(te_d[0])*1.0 / comm.size)
 
         # send only the corresponding data to each process
-        np.set_printoptions(threshold='nan')
-        print tr_d[0]
         for rank in range(1, comm.size):
-            print rank
             comm.send(tr_d[0][rank * tr_set_length:(rank + 1) * tr_set_length], dest=rank, tag=11)
             comm.send(tr_d[1][rank * tr_set_length:(rank + 1) * tr_set_length], dest=rank, tag=12)
             comm.send(va_d[0][rank * va_set_length:(rank + 1) * va_set_length], dest=rank, tag=13)
@@ -89,35 +87,15 @@ def load_data_wrapper():
 
         # process the corresponding part of the arrays
 
-        all_training_inputs = [np.reshape(x, (784,1)) for x in tr_d[0][comm.rank * tr_set_length:(comm.rank + 1 )*tr_set_length]]
-        all_training_results = [vectorized_result(y) for y in tr_d[1][comm.rank * tr_set_length:(comm.rank + 1 )*tr_set_length]]
-        all_validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0][comm.rank * va_set_length:(comm.rank + 1 )*va_set_length]]
-        all_test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0][comm.rank * te_set_length:(comm.rank + 1 )*te_set_length]]
-    else:
-        # receive arrays from master and process the corresponding part
-        tr_d   = comm.recv(source=0, tag=11)
-        training_inputs = [np.reshape(x, (784,1)) for x in tr_d]
-        comm.send(training_inputs, dest=0, tag=11)
-        
-        tr_d_r = comm.recv(source=0, tag=12)
-        training_results = [vectorized_result(y) for y in tr_d_r]
-        comm.send(training_results, dest=0, tag=12)
+        all_training_inputs = [np.reshape(x, (784,1)) for x in tr_d[0][0:tr_set_length]]
+        all_training_results = [vectorized_result(y) for y in tr_d[1][0:tr_set_length]]
+        all_validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0][0:va_set_length]]
+        all_test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0][0:te_set_length]]
 
-        va_d   = comm.recv(source=0, tag=13)
-        validation_inputs = [np.reshape(x, (784, 1)) for x in va_d]
-        comm.send(validation_inputs, dest=0, tag=13)
-        
-        te_d   = comm.recv(source=0, tag=14)
-        test_inputs = [np.reshape(x, (784, 1)) for x in te_d]
-        comm.send(test_inputs, dest=0, tag=14)
-
-    if comm.rank == 0:
-        # wait for results from slaves
-        # each slave must send back to the master 4 messages
         total_messages = (comm.size - 1) * 4
         while total_messages > 0:
             status = MPI.Status()
-            data = comm.recv(MPI.ANY_SOURCE, MPI.ANY_TAG, status=status)
+            data = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
             source = status.Get_source()
             tag = status.Get_tag()
             if tag == 11:
@@ -132,27 +110,45 @@ def load_data_wrapper():
             elif tag == 14:
                 all_test_inputs.extend(data)
                 # TODO push back to test_inputs - might not work properly
-
             total_messages -= 1
-            
+
         training_data = zip(all_training_inputs, all_training_results)
         validation_data = zip(all_validation_inputs, va_d[1])
         test_data = zip(all_test_inputs, te_d[1])
-        print "=====================training data======================"
-        #print training_data
-        print "=====================validation data===================="
-        #print validation_data
-        print "=====================test data=========================="
-        #print test_data
-        return (training_data, validation_data, test_data)
 
+    else:
+        # receive arrays from master and process the corresponding part
+        training_inputs=[]
+        training_results=[]
+        validation_inputs=[]
+        test_inputs=[]
 
-    # training_inputs = [np.reshape(x, (784, 1)) for x in tr_d[0]]
-    # training_results = [vectorized_result(y) for y in tr_d[1]]
-    #
-    # validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0]]
-    #
-    # test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0]]
+        training_data = None
+        validation_data = None
+        test_data = None
+
+        for i in range(0,4):
+            status = MPI.Status()
+            data   = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
+            tag = status.Get_tag()
+            if tag == 11:
+                training_inputs = [np.reshape(x, (784,1)) for x in data]
+            elif tag == 12:
+                training_results = [vectorized_result(y) for y in data]
+            elif tag == 13:
+                validation_inputs = [np.reshape(x, (784, 1)) for x in data]
+            elif tag == 14:
+                test_inputs = [np.reshape(x, (784, 1)) for x in data]
+
+        comm.send(training_inputs, dest=0, tag=11)
+        comm.send(training_results, dest=0, tag=12)
+        comm.send(validation_inputs, dest=0, tag=13)
+        comm.send(test_inputs, dest=0, tag=14)
+
+    comm.bcast(training_data, root=0)
+    comm.bcast(validation_data, root=0)
+    comm.bcast(test_data, root=0)
+    return (training_data, validation_data, test_data)
 
 def vectorized_result(j):
     """Return a 10-dimensional unit vector with a 1.0 in the jth
