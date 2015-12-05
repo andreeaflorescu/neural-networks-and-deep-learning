@@ -159,8 +159,7 @@ class Network(object):
         activations = [x] # list to store all the activations, layer by layer
         zs = [] # list to store all the z vectors, layer by layer
         for b, w in zip(self.biases, self.weights):
-            # print "a=", activation.shape
-            z = dot(w, activation)+b
+            z = np.dot(w, activation)+b
             zs.append(z)
             activation = sigmoid(z)
             activations.append(activation)
@@ -205,35 +204,3 @@ def sigmoid(z):
 def sigmoid_prime(z):
     """Derivative of the sigmoid function."""
     return sigmoid(z)*(1-sigmoid(z))
-
-def isMatrix(x):
-    return x.shape[0] > 1 and x.shape[1] > 1
-
-def multiplyMatrixes(X, Y):
-    result = []
-    
-    # iterate through rows of X
-    for i in range(len(X)):
-    # iterate through columns of Y
-        for j in range(len(Y[0])):
-            # iterate through rows of Y
-            for k in range(len(Y)):
-                result[i][j] += X[i][k] * Y[k][j]
-    return result
-
-def multiplyMatrixWithVector(m,v):
-    nrows = len(m)
-    w = [None] * nrows
-    for row in range(nrows):
-        w[row] = reduce(lambda x,y: x+y, map(lambda x,y: x*y, m[row], v))
-    return w
-
-def dot(X, Y):
-    if isMatrix(X) and isMatrix(Y):
-        return multiplyMatrixes(X,Y)
-    else:
-        if (isMatrix(X)):
-            return multiplyMatrixWithVector(X,Y)
-        else:
-            return multiplyMatrixWithVector(Y,X)
-    
