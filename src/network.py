@@ -72,20 +72,41 @@ class Network(object):
                 training_data[k:k+mini_batch_size]
                 for k in xrange(0, n, mini_batch_size)]
             
+            # ================================================================#
+            #======================== BACKPROPAGATION ========================#
             comm.Barrier()
             if comm.rank == 0:
                     wt = MPI.Wtime()
-            for mini_batch in mini_batches:
+            # each process will work with a chunk of mini batches
+            chunk_size = np.ceil(len(mini_batches) * 1.0 / comm.size)
+            for mini_batch in mini_batches[int(chunk_size * comm.rank): int(chunk_size * (comm.rank + 1))]:
                 self.update_mini_batch(mini_batch, eta)
             if comm.rank == 0:
+                # print comm.rank, len(self.biases[0])
+                nabla_b = None
+                nabla_w = None
+                for x in range(1, comm.size):
+                    nabla_b = comm.recv(nabla_b, source=MPI.ANY_SOURCE, tag=19)
+                    nabla_w = comm.recv(nabla_w, source=MPI.ANY_SOURCE, tag=20)
+                    self.biases = compute_medium_biases(self.biases, nabla_b, eta, len(training_data))
+                    self.weights = compute_medium_weights(self.weights, nabla_w, eta, len(training_data))
+                comm.bcast(self.biases, root=0)
+                comm.bcast(self.weights, root=0)
                 print "backpropagation", MPI.Wtime() - wt
+            else:
+                # print comm.rank, len(self.biases[0])
+                comm.send(self.biases, dest=0, tag=19)
+                comm.send(self.weights, dest=0, tag=20)
+                self.biases = comm.bcast(self.biases, root=0)
+                self.weights = comm.bcast(self.weights, root=0)
 
+            # ================================================================#
+            #======================== EVALUATION =============================#
             comm.Barrier()
             if comm.rank == 0:
                 wt = MPI.Wtime()
             t_size = len(test_data)
             chunk_size = np.ceil(t_size*1.0 / comm.size)
-            print chunk_size * comm.rank,  chunk_size * (comm.rank + 1)
             partial_res = self.evaluate(test_data[int(chunk_size * comm.rank) : int(chunk_size * (comm.rank + 1))])
             if comm.rank == 0:
                 total = partial_res
@@ -102,62 +123,16 @@ class Network(object):
         gradient descent using backpropagation to a single mini batch.
         The ``mini_batch`` is a list of tuples ``(x, y)``, and ``eta``
         is the learning rate."""
-        # nabla_b = [np.zeros(b.shape) for b in self.biases]
-        # nabla_w = [np.zeros(w.shape) for w in self.weights]
-        # for x, y in mini_batch:
-        #     # master sends nabla_b and nabla_w
-        #     delta_nabla_b, delta_nabla_w = self.backprop(x, y)
-        #     # master receives delta_nabla_b and delta_nabla_w
-        #     # master updates nabla_b and nabla_w
-        #     nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
-        #     nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
-        # # only master updates weights and biases
-        # self.weights = [w-(eta/len(mini_batch))*nw
-        #                 for w, nw in zip(self.weights, nabla_w)]
-        # self.biases = [b-(eta/len(mini_batch))*nb
-        #                for b, nb in zip(self.biases, nabla_b)]
-        
-        # each process calculates a part of the mini_batch
-        # and adds it to the total_delta
-        comm = MPI.COMM_WORLD
-
-        if comm.rank ==0:
-            nabla_b = [np.zeros(b.shape) for b in self.biases]
-            nabla_w = [np.zeros(w.shape) for w in self.weights]
-        else:
-            all_delta_nabla_b = []
-            all_delta_nabla_w = []
-
-        for it in range(comm.rank, len(mini_batch), comm.size):
-            delta_nabla_b, delta_nabla_w = self.backprop(*mini_batch[it])
-            if comm.rank == 0:
-                # update with the delta_b and delta_w calculated by master
-                nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
-                nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
-            else:
-                all_delta_nabla_b.append(delta_nabla_b)
-                all_delta_nabla_w.append(delta_nabla_w)
-        
-        if comm.rank == 0:
-            for x in range(1, comm.size):
-                data = None
-                data = comm.recv(data, source=MPI.ANY_SOURCE, tag=20)
-                #print data
-                for (delta_nabla_b, delta_nabla_w) in data:
-                    nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
-                    nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
-            # only master updates weights and biases
-            self.weights = [w-(eta/len(mini_batch))*nw
+        nabla_b = [np.zeros(b.shape) for b in self.biases]
+        nabla_w = [np.zeros(w.shape) for w in self.weights]
+        for x, y in mini_batch:
+            delta_nabla_b, delta_nabla_w = self.backprop(x, y)
+            nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
+            nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
+        self.weights = [w-(eta/len(mini_batch))*nw
                         for w, nw in zip(self.weights, nabla_w)]
-            self.biases = [b-(eta/len(mini_batch))*nb
+        self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
-            comm.bcast(self.weights, root=0)
-            comm.bcast(self.biases, root=0)
-        else:
-            comm.send(zip(all_delta_nabla_b, all_delta_nabla_w), dest=0, tag=20)
-            self.weights = comm.bcast(self.weights, root=0)
-            self.biases  = comm.bcast(self.biases, root=0)
-
 
     def backprop(self, x, y):
         """Return a tuple ``(nabla_b, nabla_w)`` representing the
@@ -216,3 +191,21 @@ def sigmoid(z):
 def sigmoid_prime(z):
     """Derivative of the sigmoid function."""
     return sigmoid(z)*(1-sigmoid(z))
+
+def compute_medium_weights(weights, nabla_w, eta, length):
+    # print len(weights), len(nabla_w)
+    # print len(weights[0], len(nabla_w[0]))
+    weights = [w-(eta/length)*nw
+                for w, nw in zip(weights, nabla_w)]
+    return weights
+def compute_medium_biases(biases, nabla_b, eta, length):
+    # nabla_b = [np.zeros(b.shape) for b in nabla_b]
+
+    biases = [b-(eta/length)*nb
+                       for b, nb in zip(biases, nabla_b)]
+    # for i in range(0, len(biases)):
+        # for j in range(0, len(biases[0])):
+            # biases[i][j] = biases[i][j] - (eta/length)*nabla_b[i][j]
+    # print np.array(biases).shape
+    # return np.mean(biases, nabla_b)
+    return biases
