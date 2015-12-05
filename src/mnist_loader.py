@@ -69,6 +69,8 @@ def load_data_wrapper():
     code."""
 
     comm = MPI.COMM_WORLD
+    comm.Barrier()
+    wt = MPI.Wtime()
     if comm.rank == 0:
         # read data from gzip
         tr_d, va_d, te_d = load_data()
@@ -145,9 +147,17 @@ def load_data_wrapper():
         comm.send(validation_inputs, dest=0, tag=13)
         comm.send(test_inputs, dest=0, tag=14)
 
-    comm.bcast(training_data, root=0)
-    comm.bcast(validation_data, root=0)
-    comm.bcast(test_data, root=0)
+    if comm.rank == 0:
+        comm.bcast(training_data, root=0)
+        comm.bcast(validation_data, root=0)
+        comm.bcast(test_data, root=0)
+        #print "MNIST_data_transformation", MPI.Wtime() - wt
+        print comm.rank, len(training_data)
+    else:
+        training_data = comm.bcast(training_data, root=0)
+        validation_data = comm.bcast(validation_data, root=0)
+        test_data = comm.bcast(test_data, root=0)
+        print str(comm.rank), len(training_data) 
     return (training_data, validation_data, test_data)
 
 def vectorized_result(j):
