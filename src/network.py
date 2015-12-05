@@ -113,8 +113,8 @@ class Network(object):
                 for rank in range(1, comm.size):
                     comm.recv(partial_res, source=MPI.ANY_SOURCE, tag=15)
                     total+=partial_res
-                print "Epoch {0}: {1} / {2}".format(
-                    j, total, n_test)
+                # print "Epoch {0}: {1} / {2}".format(
+                #     j, total, n_test)
                 print "evaluation", MPI.Wtime() - wt
             else:
                 comm.send(partial_res, dest=0, tag=15)
