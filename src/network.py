@@ -74,17 +74,29 @@ class Network(object):
             
             comm.Barrier()
             if comm.rank == 0:
-                wt = MPI.Wtime()
-            for mini_batch in mini_batches:    
+                    wt = MPI.Wtime()
+            for mini_batch in mini_batches:
                 self.update_mini_batch(mini_batch, eta)
             if comm.rank == 0:
                 print "backpropagation", MPI.Wtime() - wt
 
-            if test_data:
+            comm.Barrier()
+            if comm.rank == 0:
+                wt = MPI.Wtime()
+            t_size = len(test_data)
+            chunk_size = np.ceil(t_size*1.0 / comm.size)
+            print chunk_size * comm.rank,  chunk_size * (comm.rank + 1)
+            partial_res = self.evaluate(test_data[int(chunk_size * comm.rank) : int(chunk_size * (comm.rank + 1))])
+            if comm.rank == 0:
+                total = partial_res
+                for rank in range(1, comm.size):
+                    comm.recv(partial_res, source=MPI.ANY_SOURCE, tag=15)
+                    total+=partial_res
                 print "Epoch {0}: {1} / {2}".format(
-                    j, self.evaluate(test_data), n_test)
+                    j, total, n_test)
+                print "evaluation", MPI.Wtime() - wt
             else:
-                print "Epoch {0} complete".format(j)
+                comm.send(partial_res, dest=0, tag=15)
     def update_mini_batch(self, mini_batch, eta):
         """Update the network's weights and biases by applying
         gradient descent using backpropagation to a single mini batch.
