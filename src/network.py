@@ -15,6 +15,7 @@ import random
 
 # Third-party libraries
 import numpy as np
+from mpi4py import MPI
 
 class Network(object):
 
@@ -29,11 +30,22 @@ class Network(object):
         layer is assumed to be an input layer, and by convention we
         won't set any biases for those neurons, since biases are only
         ever used in computing the outputs from later layers."""
+        comm = MPI.COMM_WORLD
         self.num_layers = len(sizes)
         self.sizes = sizes
-        self.biases = [np.random.randn(y, 1) for y in sizes[1:]]
-        self.weights = [np.random.randn(y, x)
-                        for x, y in zip(sizes[:-1], sizes[1:])]
+        if comm.rank == 0:   
+            ''' The master randomly initializez the biases and weights and sends 
+            them to the slaves by a broadcast message.'''
+            self.biases = [np.random.randn(y, 1) for y in sizes[1:]]
+            self.weights = [np.random.randn(y, x)
+                            for x, y in zip(sizes[:-1], sizes[1:])]
+            comm.bcast(self.biases, root=0)
+            comm.bcast(self.weights, root=0)
+        else:
+            self.biases = []
+            self.weights = []
+            self.biases = comm.bcast(self.biases, root=0)
+            self.weights = comm.bcast(self.weights, root=0)
 
     def feedforward(self, a):
         """Return the output of the network if ``a`` is input."""
@@ -51,6 +63,7 @@ class Network(object):
         network will be evaluated against the test data after each
         epoch, and partial progress printed out.  This is useful for
         tracking progress, but slows things down substantially."""
+        comm = MPI.COMM_WORLD
         if test_data: n_test = len(test_data)
         n = len(training_data)
         for j in xrange(epochs):
@@ -58,29 +71,81 @@ class Network(object):
             mini_batches = [
                 training_data[k:k+mini_batch_size]
                 for k in xrange(0, n, mini_batch_size)]
-            for mini_batch in mini_batches:
+            
+            comm.Barrier()
+            if comm.rank == 0:
+                wt = MPI.Wtime()
+            for mini_batch in mini_batches:    
                 self.update_mini_batch(mini_batch, eta)
+            if comm.rank == 0:
+                print "backpropagation", MPI.Wtime() - wt
+
             if test_data:
                 print "Epoch {0}: {1} / {2}".format(
                     j, self.evaluate(test_data), n_test)
             else:
                 print "Epoch {0} complete".format(j)
-
     def update_mini_batch(self, mini_batch, eta):
         """Update the network's weights and biases by applying
         gradient descent using backpropagation to a single mini batch.
         The ``mini_batch`` is a list of tuples ``(x, y)``, and ``eta``
         is the learning rate."""
-        nabla_b = [np.zeros(b.shape) for b in self.biases]
-        nabla_w = [np.zeros(w.shape) for w in self.weights]
-        for x, y in mini_batch:
-            delta_nabla_b, delta_nabla_w = self.backprop(x, y)
-            nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
-            nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
-        self.weights = [w-(eta/len(mini_batch))*nw
+        # nabla_b = [np.zeros(b.shape) for b in self.biases]
+        # nabla_w = [np.zeros(w.shape) for w in self.weights]
+        # for x, y in mini_batch:
+        #     # master sends nabla_b and nabla_w
+        #     delta_nabla_b, delta_nabla_w = self.backprop(x, y)
+        #     # master receives delta_nabla_b and delta_nabla_w
+        #     # master updates nabla_b and nabla_w
+        #     nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
+        #     nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
+        # # only master updates weights and biases
+        # self.weights = [w-(eta/len(mini_batch))*nw
+        #                 for w, nw in zip(self.weights, nabla_w)]
+        # self.biases = [b-(eta/len(mini_batch))*nb
+        #                for b, nb in zip(self.biases, nabla_b)]
+        
+        # each process calculates a part of the mini_batch
+        # and adds it to the total_delta
+        comm = MPI.COMM_WORLD
+
+        if comm.rank ==0:
+            nabla_b = [np.zeros(b.shape) for b in self.biases]
+            nabla_w = [np.zeros(w.shape) for w in self.weights]
+        else:
+            all_delta_nabla_b = []
+            all_delta_nabla_w = []
+
+        for it in range(comm.rank, len(mini_batch), comm.size):
+            delta_nabla_b, delta_nabla_w = self.backprop(*mini_batch[it])
+            if comm.rank == 0:
+                # update with the delta_b and delta_w calculated by master
+                nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
+                nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
+            else:
+                all_delta_nabla_b.append(delta_nabla_b)
+                all_delta_nabla_w.append(delta_nabla_w)
+        
+        if comm.rank == 0:
+            for x in range(1, comm.size):
+                data = None
+                data = comm.recv(data, source=MPI.ANY_SOURCE, tag=20)
+                #print data
+                for (delta_nabla_b, delta_nabla_w) in data:
+                    nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
+                    nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
+            # only master updates weights and biases
+            self.weights = [w-(eta/len(mini_batch))*nw
                         for w, nw in zip(self.weights, nabla_w)]
-        self.biases = [b-(eta/len(mini_batch))*nb
+            self.biases = [b-(eta/len(mini_batch))*nb
                        for b, nb in zip(self.biases, nabla_b)]
+            comm.bcast(self.weights, root=0)
+            comm.bcast(self.biases, root=0)
+        else:
+            comm.send(zip(all_delta_nabla_b, all_delta_nabla_w), dest=0, tag=20)
+            self.weights = comm.bcast(self.weights, root=0)
+            self.biases  = comm.bcast(self.biases, root=0)
+
 
     def backprop(self, x, y):
         """Return a tuple ``(nabla_b, nabla_w)`` representing the

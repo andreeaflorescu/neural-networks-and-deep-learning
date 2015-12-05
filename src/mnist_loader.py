@@ -151,13 +151,11 @@ def load_data_wrapper():
         comm.bcast(training_data, root=0)
         comm.bcast(validation_data, root=0)
         comm.bcast(test_data, root=0)
-        #print "MNIST_data_transformation", MPI.Wtime() - wt
-        print comm.rank, len(training_data)
+        print "MNIST_data_transformation", MPI.Wtime() - wt
     else:
         training_data = comm.bcast(training_data, root=0)
         validation_data = comm.bcast(validation_data, root=0)
         test_data = comm.bcast(test_data, root=0)
-        print str(comm.rank), len(training_data) 
     return (training_data, validation_data, test_data)
 
 def vectorized_result(j):
