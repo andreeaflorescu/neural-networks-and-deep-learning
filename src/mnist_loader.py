@@ -88,11 +88,34 @@ def load_data_wrapper():
             comm.send(te_d[0][rank * te_set_length:(rank + 1) * te_set_length], dest=rank, tag=14)
 
         # process the corresponding part of the arrays
-
-        all_training_inputs = [np.reshape(x, (784,1)) for x in tr_d[0][0:tr_set_length]]
-        all_training_results = [vectorized_result(y) for y in tr_d[1][0:tr_set_length]]
-        all_validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0][0:va_set_length]]
-        all_test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0][0:te_set_length]]
+        training_inputs = tr_d[0][0:tr_set_length]
+        training_results = tr_d[1][0:tr_set_length]
+        validation_inputs = va_d[0][0:va_set_length]
+        test_inputs = te_d[0][0:te_set_length]
+        all_training_inputs = []
+        all_training_results = []
+        all_validation_inputs = []
+        all_test_inputs = []
+        for x in training_inputs:
+            # if x.shape != (784,1):
+            # print x.shape
+            all_training_inputs.append(reshape_as_matrix(x))
+        for y in training_results:
+            all_training_results.append(vectorized_result(y))
+        for x in validation_inputs:
+            # if x.shape != (784,1):
+                # print "validation da"
+            # print x.shape
+            all_validation_inputs.append(reshape_as_matrix(x))
+        for x in test_inputs:
+            # if x.shape != (784,1):
+                # print "test: da"
+            # print x.shape
+            all_test_inputs.append(reshape_as_matrix(x))
+        # all_training_inputs = [np.reshape(x, (784,1)) for x in tr_d[0][0:tr_set_length]]
+        # all_training_results = [vectorized_result(y) for y in tr_d[1][0:tr_set_length]]
+        # all_validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0][0:va_set_length]]
+        # all_test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0][0:te_set_length]]
 
         total_messages = (comm.size - 1) * 4
         while total_messages > 0:
@@ -134,13 +157,21 @@ def load_data_wrapper():
             data   = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
             tag = status.Get_tag()
             if tag == 11:
-                training_inputs = [np.reshape(x, (784,1)) for x in data]
+                for x in data:
+                    training_inputs.append(np.reshape(x, (784,1)))
+                # training_inputs = [np.reshape(x, (784,1)) for x in data]
             elif tag == 12:
-                training_results = [vectorized_result(y) for y in data]
+                for x in data:
+                    training_results.append(vectorized_result(x))
+                # training_results = [vectorized_result(y) for y in data]
             elif tag == 13:
-                validation_inputs = [np.reshape(x, (784, 1)) for x in data]
+                for x in data:
+                    validation_inputs.append(np.reshape(x, (784,1)))
+                # validation_inputs = [np.reshape(x, (784, 1)) for x in data]
             elif tag == 14:
-                test_inputs = [np.reshape(x, (784, 1)) for x in data]
+                for x in data:
+                    test_inputs.append(np.reshape(x, (784,1)))
+                # test_inputs = [np.reshape(x, (784, 1)) for x in data]
 
         comm.send(training_inputs, dest=0, tag=11)
         comm.send(training_results, dest=0, tag=12)
@@ -163,6 +194,15 @@ def vectorized_result(j):
     position and zeroes elsewhere.  This is used to convert a digit
     (0...9) into a corresponding desired output from the neural
     network."""
-    e = np.zeros((10, 1))
-    e[j] = 1.0
-    return e
+    e = [None] * 10
+    for i in range(len(e)):
+        if i == j:
+            e[i] = 0
+        else:
+            e[i] = 1
+    return np.array(e).reshape(10, 1)
+def reshape_as_matrix(x):
+    matrix = np.empty((784, 1))
+    for i in range(len(x)):
+        matrix[i][0] = x[i]
+    return matrix
