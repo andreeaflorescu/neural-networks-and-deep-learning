@@ -17,6 +17,7 @@ import gzip
 # Third-party libraries
 import numpy as np
 from mpi4py import MPI
+#from mpi4py-openmpi import MPI
 
 def load_data():
     """Return the MNIST data as a tuple containing the training data,

@@ -1,6 +1,6 @@
 #!/bin/bash
-for i in {1..18}
-do
-	echo "Number of processes: $i"
-	mpirun -np $i python main.py > results.txt
-done	
+#for i in {1..18}
+#do
+	#qsub -q ibm-nehalem.q -cwd -pe openmpi*1 $1 run_ann.sh $1
+	qsub -cwd -pe openmpi*1 $1 run_ann.sh $1
+#done	

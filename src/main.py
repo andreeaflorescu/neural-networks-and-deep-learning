@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import mnist_loader
 import network
-from mpi4py import MPI
+#from mpi4py import MPI
 #from timeit import Timer
 
 #t = Timer("mnist_loader.load_data_wrapper()")

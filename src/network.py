@@ -16,6 +16,7 @@ import random
 # Third-party libraries
 import numpy as np
 from mpi4py import MPI
+#from mpi4py-openmpi import MPI
 
 class Network(object):
 
@@ -85,9 +86,10 @@ class Network(object):
                 # print comm.rank, len(self.biases[0])
                 nabla_b = None
                 nabla_w = None
+                data = None
                 for x in range(1, comm.size):
-                    nabla_b = comm.recv(nabla_b, source=MPI.ANY_SOURCE, tag=19)
-                    nabla_w = comm.recv(nabla_w, source=MPI.ANY_SOURCE, tag=20)
+                    nabla_b = comm.recv(data, source=MPI.ANY_SOURCE, tag=19)
+                    nabla_w = comm.recv(data, source=MPI.ANY_SOURCE, tag=20)
                     self.biases = compute_medium_biases(self.biases, nabla_b, eta, len(training_data))
                     self.weights = compute_medium_weights(self.weights, nabla_w, eta, len(training_data))
                 comm.bcast(self.biases, root=0)
@@ -108,10 +110,11 @@ class Network(object):
             t_size = len(test_data)
             chunk_size = np.ceil(t_size*1.0 / comm.size)
             partial_res = self.evaluate(test_data[int(chunk_size * comm.rank) : int(chunk_size * (comm.rank + 1))])
+            data = None
             if comm.rank == 0:
                 total = partial_res
                 for rank in range(1, comm.size):
-                    comm.recv(partial_res, source=MPI.ANY_SOURCE, tag=15)
+                    partial_res = comm.recv(data, source=MPI.ANY_SOURCE, tag=15)
                     total+=partial_res
                 # print "Epoch {0}: {1} / {2}".format(
                 #     j, total, n_test)

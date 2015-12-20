@@ -1,0 +1,4 @@
+Processes 1
+MNIST_data_transformation 51.9506549835
+backpropagation 31.7652361393
+evaluation 0.647006034851
